@@ -1,23 +1,21 @@
 # Dating bot
 
-Telegram-based dating bot with ranked discovery, PostgreSQL, Redis prefetch queues, RabbitMQ (events and background tasks), MinIO for photos, Celery for scheduled rating updates.
+Dating-бот в Telegram с ранжированной выдачей, PostgreSQL, Redis prefetch queues, RabbitMQ (events и background tasks), MinIO для фото и Celery воркеров
 
-## Docs
+## Документация
 
-| Document | Description |
-|----------|-------------|
-| [docs/services.md](docs/services.md) | Service boundaries and responsibilities |
-| [docs/architecture.md](docs/architecture.md) | System diagram, RabbitMQ routing, Redis keys, event catalog |
-| [docs/database-schema.md](docs/database-schema.md) | PostgreSQL tables, indexes, ER overview |
-
+| Документ | Описание |
+|----------|----------|
+| [docs/ru/services.md](docs/ru/services.md) | Русская версия: сервисы |
+| [docs/ru/architecture.md](docs/ru/architecture.md) | Русская версия: архитектура |
+| [docs/ru/database-schema.md](docs/ru/database-schema.md) | Русская версия: схема БД |
 
 ## Roadmap
 
-1. **Stage 1 — Planning and design** (current): services, architecture, DB schema, repo hygiene.
-2. **Stage 2 — Core functionality**: Telegram bot, `/start` registration, FastAPI foundation.
-3. **Stage 3 — Profiles and ranking**: CRUD, ranking (levels 1–3 minimal slice), Redis prefetch, RabbitMQ integration.
-4. **Stage 4 — Hardening**: Celery schedules, DB tuning, tests, performance, deploy/demo.
-
+1. **Stage 1 — Планирование и дизайн** (текущий): сервисы, архитектура, схема БД, базовая подготовка репозитория.
+2. **Stage 2 — Core functionality**: Telegram-бот, регистрация через `/start`, база FastAPI.
+3. **Stage 3 — Профили и ранжирование**: CRUD, ранжирование, Redis prefetch, интеграция RabbitMQ.
+4. **Stage 4 — Hardening**: расписания Celery, тюнинг БД, тесты, производительность, deploy/demo.
 
 ## Tech stack
 
