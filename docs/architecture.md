@@ -1,6 +1,7 @@
 # Architecture
 
-End-to-end design for the dating bot: Telegram client, FastAPI profile service, PostgreSQL, Redis prefetch, RabbitMQ (events and background tasks), MinIO for media, Celery for scheduled rating updates.
+End-to-end design for the dating bot: Telegram client, FastAPI profile service, PostgreSQL, Redis prefetch, RabbitMQ (events and task queue), MinIO for media, Celery workers + scheduled jobs.
+
 
 ## High-level diagram
 
@@ -12,7 +13,6 @@ flowchart LR
   subgraph app [Application]
     Bot[Telegram_Bot]
     API[Profile_API_FastAPI]
-    Rank[Ranking_logic]
   end
   subgraph data [Data_plane]
     PG[(PostgreSQL)]
@@ -25,7 +25,6 @@ flowchart LR
   end
   TG <--> Bot
   Bot --> API
-  API --> Rank
   API --> PG
   API --> RD
   API --> S3
@@ -33,7 +32,6 @@ flowchart LR
   MQ --> Cel
   Cel --> PG
   Cel --> RD
-  Rank --> PG
 ```
 
 ## RabbitMQ routing (design)
@@ -121,7 +119,7 @@ Envelope (JSON, UTF-8):
 
 ## Background jobs (Celery)
 
-Celery runs **on a schedule** (Celery Beat) to recompute **user ratings** and write results to the database, so swipes and API calls stay light. Optional extra jobs (e.g. cache maintenance) can live here too.
+Celery handles two flows: **workers** process queued background tasks, and **Celery Beat** runs scheduled jobs. Main use case is recomputing **user ratings** and writing results to the database; optional maintenance jobs can live here too.
 
 
 ## Observability touchpoints
@@ -130,9 +128,3 @@ Celery runs **on a schedule** (Celery Beat) to recompute **user ratings** and wr
 - RabbitMQ: queue depth, consumer utilization, DLQ rate.
 - Celery: task success/failure, latency.
 - Redis: memory, evictions, hit ratio for discovery keys.
-
-## Related documents
-
-- [services.md](./services.md) — per-service responsibilities.
-- [database-schema.md](./database-schema.md) — PostgreSQL tables and indexes.
-- Russian: [docs/ru/architecture.md](./ru/architecture.md) (same content).

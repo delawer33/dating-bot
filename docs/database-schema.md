@@ -63,10 +63,11 @@ One row per user (1:1). Discovery filters use these columns.
 | `profile_id` | UUID | FK → `profiles(user_id)` |
 | `s3_key` | TEXT | NOT NULL |
 | `sort_order` | INT | NOT NULL, default 0 |
-| `is_primary` | BOOLEAN | default false |
 | `created_at` | TIMESTAMPTZ | |
 
 **Indexes:** `(profile_id, sort_order)`.
+
+Primary photo rule: use the first photo by `sort_order` (minimum value).
 
 ### `user_preferences`
 
@@ -145,7 +146,3 @@ Separate table for recomputed scores (Celery).
 | `referrer_id` | UUID | FK |
 | `referee_id` | UUID | FK |
 | `credited_at` | TIMESTAMPTZ | |
-| `bonus_applied` | DOUBLE PRECISION | |
-
-Russian: [docs/ru/database-schema.md](./ru/database-schema.md).
-

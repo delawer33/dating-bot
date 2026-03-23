@@ -1,46 +1,42 @@
 # Сервисы
 
-Логические сервисы dating-бота. Изначально могут жить в одном репозитории пакетами, позже вынести в отдельные deployable units.
+Логические сервисы для dating-бота. На старте они могут жить как пакеты в одном репозитории, а позже быть разделены на deployable units.
 
 ## Telegram Bot
 
 - Long-polling или webhook к Telegram Bot API.
-- `/start`, сценарий регистрации, discovery UX (карточка профиля, кнопки like / skip).
-- Вызывает Profile API за истинным состоянием; **не** публикует в RabbitMQ — события шлёт API после сохранения действий.
-- Отдаёт пользователям HTTPS-ссылки на фото (публичные или signed URLs MinIO — этап 3).
+- Обрабатывает `/start`, сценарий регистрации.
+- Вызывает Profile API как источник истины.
 
 ## Profile API (FastAPI)
 
-- REST (или внутренний JSON): пользователи, профили, метаданные фото, настройки, эндпоинт discovery `next`.
-- Сводит ранжирование с **Redis prefetch queues** (см. [architecture.md](./architecture.md)).
-- Выдаёт presigned uploads в MinIO; хранит `s3_key` и порядок в PostgreSQL.
-- После успешного commit в БД публикует события взаимодействий в RabbitMQ (или через outbox — решение на этапе 3).
+- REST (или внутренний JSON) API: пользователи, профили, метаданные фото, preferences, endpoint `next`.
+- Интегрирует результат ранжирования с **Redis prefetch queues**.
+- Выдаёт presigned uploads для MinIO; сохраняет `s3_key` и порядок в PostgreSQL.
+- Публикует события в RabbitMQ после успешных коммитов в БД.
 
 ## Ranking / scoring
 
-- Чистые функции (библиотека): уровень 1 (полнота профиля, фото, соответствие настройкам), уровень 2 (входы из `user_behavior_stats`), уровень 3 (weighted combination + referral bonus).
-- Читает/пишет `user_ratings` (и опционально breakdown JSON). Вызывается из API и Celery workers.
+- Pure functions (library): Level 1 (полнота профиля, фото, соответствие preferences), Level 2 (входы из `user_behavior_stats`), Level 3 (weighted combination + referral bonus).
+- Читает/пишет `user_ratings` (и optional breakdown JSON). Вызывается из API и Celery workers.
 
 ## Interaction / event pipeline (RabbitMQ)
 
-- Публикует **domain events** после лайков, скипов и матчей, чтобы остальная система реагировала без замедления request.
-- **Consumers** поддерживают актуальность **`user_behavior_stats`** (и связанных агрегатов) по этим событиям.
-- Долгосрочная истина — в **PostgreSQL** (`profile_interactions`, `matches`); RabbitMQ для delivery, не audit log.
+- Публикация **domain events** после likes, skips и matches, чтобы другие части системы могли реагировать без замедления request.
+- Consumers синхронизируют **`user_behavior_stats`** (и связанные агрегаты) по этим событиям.
+- Долгосрочная истина хранится в **PostgreSQL** (`profile_interactions`, `matches`)
 
 ## Worker (Celery)
 
-- **Scheduled** пересчёт **`user_ratings`** (основная задача).
-- По желанию: обслуживание discovery в Redis, cleanup, прочий batch.
+- Обрабатывает background tasks через workers.
+- Выполняет **scheduled** пересчёт **`user_ratings`** (основная ответственность).
 
 ## Media (MinIO)
 
 - S3-compatible object storage для фото профилей.
-- API генерирует presigned PUT/POST; clients upload; метаданные — в `profile_photos`.
 
 ## Observability
 
 - Structured logging (JSON), correlation IDs от Bot → API → workers.
-- Metrics: HTTP latency, queue depth, длительность Celery task, Redis hit rate для prefetch.
-- Health endpoints на Profile API; в non-dev — RabbitMQ management plugin или Prometheus plugin.
-
-English: [services.md](../services.md).
+- Metrics: HTTP latency, queue depth, Celery task duration, Redis hit rate для prefetch.
+- Health endpoints в Profile API; RabbitMQ management plugin
