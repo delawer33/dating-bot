@@ -22,3 +22,46 @@ Dating-бот в Telegram с ранжированной выдачей, PostgreS
 - Python, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async)
 - PostgreSQL, Redis, RabbitMQ, MinIO (S3-compatible), Celery
 
+## Running Stage 2 (dev)
+
+```bash
+# 1. Copy and edit env
+cp backend/.env.example backend/.env
+# Fill in: BOT_TOKEN, BOT_SECRET, API_SECRET (must match)
+
+# 2. Start infrastructure + API + bot
+docker compose up --build
+
+# Migrations run automatically via the `migrate` service.
+# API docs: http://localhost:8000/docs
+```
+
+### Switching to webhook mode (prod)
+
+In `backend/.env`:
+```
+BOT_TRANSPORT=webhook
+WEBHOOK_URL=https://bot.yourdomain.com/webhook
+WEBHOOK_SECRET_TOKEN=<random-secret>
+APP_ENV=prod
+```
+
+### Running without Docker (local dev)
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+
+# Start Postgres + Redis via docker compose infra only:
+docker compose up postgres redis -d
+
+# Run migrations
+alembic upgrade head
+
+# API (terminal 1)
+uvicorn api.main:app --reload
+
+# Bot (terminal 2)
+python -m bot.main
+```
+

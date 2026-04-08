@@ -128,3 +128,68 @@ Celery handles two flows: **workers** process queued background tasks, and **Cel
 - RabbitMQ: queue depth, consumer utilization, DLQ rate.
 - Celery: task success/failure, latency.
 - Redis: memory, evictions, hit ratio for discovery keys.
+
+
+---
+
+## Stage 2 implementation notes
+
+### Service authority boundary
+
+The **Profile API is the only writer** to PostgreSQL. The bot is a pure UI adapter:
+it collects user input and calls the API; it never touches the DB directly.
+All validation and state-transition logic lives in the API.
+
+### Transport adapter
+
+`BOT_TRANSPORT` env var selects the adapter at startup — no code change needed to switch modes.
+
+| Value | Adapter | Use case |
+|-------|---------|----------|
+| `polling` | `PollingAdapter` | Dev default. No public URL required. |
+| `webhook` | `WebhookAdapter` | Production. Requires `WEBHOOK_URL` (HTTPS). |
+
+`build_transport()` in `bot/transport/adapter.py` is the single decision point.
+In webhook mode the bot starts an aiohttp server and calls `bot.set_webhook()` on startup.
+
+### Registration wizard state
+
+```
+/start → API /registration/start
+       → returns registration_step (inferred from DB)
+       → bot sets FSM state and sends prompt
+
+User input → bot forwards to step endpoint → API validates + persists
+           → returns next registration_step
+           → bot continues wizard
+```
+
+Bot FSM state (aiogram, stored in Redis) tracks **conversation position**.
+API DB state is the **source of truth** — `/registration/start` always re-syncs the bot.
+
+### Registration step inference (API)
+
+```
+profile is None or display_name is None  →  "display_name"
+birth_date is None                        →  "birth_date"
+gender is None                            →  "gender"
+city is None                              →  "location"
+all set                                   →  "complete"
+```
+
+### Geocoding provider chain
+
+```
+CascadeGeocodingProvider
+  └─ NominatimProvider  (primary, no key needed)
+  └─ GoogleMapsProvider (fallback, opt-in via GOOGLE_MAPS_API_KEY)
+```
+
+To add a new provider: implement the `GeocodingProvider` protocol in `shared/geo/`
+and prepend/append it in `api/dependencies.py::build_geocoding_provider`.
+
+### Bot → API authentication
+
+Every registration request carries `X-Bot-Secret: <BOT_SECRET>` (shared secret from env).
+The `require_bot_auth` FastAPI dependency validates it with `hmac.compare_digest` to
+prevent timing attacks. Registration endpoints are not publicly exposed.

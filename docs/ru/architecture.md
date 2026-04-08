@@ -108,7 +108,7 @@ Envelope (JSON, UTF-8):
 | type | payload (минимум) |
 |------|-------------------|
 | `profile.liked` | `actor_user_id`, `target_user_id`, `interaction_id` |
-| `profile.skipped` | same |
+| `profile.skipped` | `actor_user_id`, `target_user_id`, `interaction_id` |
 | `match.created` | `match_id`, `user_a_id`, `user_b_id` |
 
 ## Background jobs (Celery)

@@ -133,7 +133,7 @@ erDiagram
 
 **Indexes:** `(combined_score DESC)`
 
-### `referral_events` (audit)
+### `referral_events`
 
 | Column | Type | Notes |
 |--------|------|--------|

@@ -51,6 +51,7 @@ Thumbs.db
 # Local data (Docker / MinIO volumes if mounted in repo)
 data/
 minio-data/
+var/postgres/
 
 # Logs
 *.log
