@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 from aiogram import Bot, Dispatcher
 
+from bot.transport.polling import PollingAdapter
+from bot.transport.webhook import WebhookAdapter
 
 class TransportAdapter(ABC):
     @abstractmethod
@@ -12,10 +14,6 @@ class TransportAdapter(ABC):
 
 
 def build_transport(transport: str, **kwargs) -> TransportAdapter:
-    """Factory that resolves polling vs. webhook from BOT_TRANSPORT at startup."""
-    from bot.transport.polling import PollingAdapter
-    from bot.transport.webhook import WebhookAdapter
-
     match transport:
         case "polling":
             return PollingAdapter()
