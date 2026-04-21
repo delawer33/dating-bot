@@ -1,0 +1,80 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: benchmark_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:7.2
+    container_name: benchmark_redis
+    ports:
+      - "6378:6379"
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --maxmemory 900mb
+      --maxmemory-policy noeviction
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  producer:
+    build: ./producer
+    container_name: benchmark_producer
+    ports:
+      - "8001:8001"
+    environment:
+      RMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://redis:6378
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+
+  consumer:
+    build: ./consumer
+    container_name: benchmark_consumer
+    ports:
+      - "8002:8002"
+    environment:
+      RMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://redis:6378
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
