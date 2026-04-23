@@ -77,6 +77,7 @@ def test_start_new_user(client) -> None:
     new_user.id = user_id
     new_user.telegram_id = _TG_ID
     new_user.username = "testuser"
+    new_user.registration_completed = False
 
     # First execute returns no existing user (None), second returns the new user.
     from sqlalchemy.engine import Result
@@ -86,12 +87,13 @@ def test_start_new_user(client) -> None:
     with_user = MagicMock()
     with_user.scalar_one_or_none.return_value = new_user
 
-    # After commit/refresh, the session re-queries the user and profile.
+    # referral_code is absent → no referrer query. get_registration_state loads user,
+    # profile, then prefs inside _get_registration_step.
     session.execute.side_effect = [
-        no_result,   # user lookup → not found
-        no_result,   # referrer lookup → none
-        with_user,   # user lookup after creation
-        no_result,   # profile lookup → no profile yet
+        no_result,   # registration_start: user by telegram_id → not found
+        with_user,  # get_registration_state: user by telegram_id
+        no_result,   # profile by user_id → none
+        no_result,   # preferences by user_id → none
     ]
     session.refresh.side_effect = lambda obj: setattr(obj, "id", user_id)
 

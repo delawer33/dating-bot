@@ -3,7 +3,10 @@ import logging
 from typing import Annotated
 
 import redis.asyncio as aioredis
-from fastapi import Depends, Header, HTTPException
+from botocore.client import BaseClient
+from fastapi import Depends, Header, HTTPException, Request
+
+from api.messaging.events import EventPublisher
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import settings
@@ -53,7 +56,22 @@ async def require_bot_auth(x_bot_secret: Annotated[str | None, Header()] = None)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def get_s3_client(request: Request) -> BaseClient:
+    return request.app.state.s3_client
+
+
 DBSession = Annotated[AsyncSession, Depends(get_session)]
 BotAuth = Annotated[None, Depends(require_bot_auth)]
 GeoProvider = Annotated[CascadeGeocodingProvider, Depends(get_geocoding_provider)]
 RedisClient = Annotated[aioredis.Redis, Depends(get_redis)]
+S3Client = Annotated[BaseClient, Depends(get_s3_client)]
+
+
+def get_event_publisher(request: Request) -> EventPublisher:
+    pub = getattr(request.app.state, "event_publisher", None)
+    if not isinstance(pub, EventPublisher):
+        raise HTTPException(status_code=503, detail="Event bus unavailable.")
+    return pub
+
+
+EventPublisherDep = Annotated[EventPublisher, Depends(get_event_publisher)]

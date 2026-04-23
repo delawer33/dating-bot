@@ -14,6 +14,8 @@ class BotConfig(SharedConfig):
 
     webhook_secret_token: str | None = None
 
+    redis_url: str
+
     api_base_url: str
     api_secret: str
 

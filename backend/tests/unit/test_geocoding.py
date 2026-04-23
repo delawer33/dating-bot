@@ -1,12 +1,16 @@
 """Unit tests for geocoding providers and the cascade chain."""
+import re
+
 import pytest
-import httpx
 from pytest_httpx import HTTPXMock
 
-from shared.geo.nominatim import NominatimProvider
-from shared.geo.google import GoogleMapsProvider
 from shared.geo.cascade import CascadeGeocodingProvider
+from shared.geo.google import GoogleMapsProvider
+from shared.geo.nominatim import NominatimProvider
 from shared.geo.provider import GeocodingError
+
+_NOM = re.compile(r"https://nominatim\.openstreetmap\.org/reverse")
+_GOOGLE = re.compile(r"https://maps\.googleapis\.com/maps/api/geocode/json")
 
 
 # ── Nominatim ─────────────────────────────────────────────────────────────────
@@ -14,7 +18,7 @@ from shared.geo.provider import GeocodingError
 @pytest.mark.asyncio
 async def test_nominatim_returns_city_and_district(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="nominatim.openstreetmap.org",
+        url=_NOM,
         json={
             "address": {
                 "city": "Moscow",
@@ -31,7 +35,7 @@ async def test_nominatim_returns_city_and_district(httpx_mock: HTTPXMock) -> Non
 @pytest.mark.asyncio
 async def test_nominatim_falls_back_to_town(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="nominatim.openstreetmap.org",
+        url=_NOM,
         json={"address": {"town": "Mytishchi"}},
     )
     provider = NominatimProvider()
@@ -43,7 +47,7 @@ async def test_nominatim_falls_back_to_town(httpx_mock: HTTPXMock) -> None:
 @pytest.mark.asyncio
 async def test_nominatim_raises_on_empty_city(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="nominatim.openstreetmap.org",
+        url=_NOM,
         json={"address": {}},
     )
     provider = NominatimProvider()
@@ -54,7 +58,7 @@ async def test_nominatim_raises_on_empty_city(httpx_mock: HTTPXMock) -> None:
 @pytest.mark.asyncio
 async def test_nominatim_raises_on_http_error(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="nominatim.openstreetmap.org",
+        url=_NOM,
         status_code=503,
     )
     provider = NominatimProvider()
@@ -67,7 +71,7 @@ async def test_nominatim_raises_on_http_error(httpx_mock: HTTPXMock) -> None:
 @pytest.mark.asyncio
 async def test_google_returns_city_and_district(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="maps.googleapis.com",
+        url=_GOOGLE,
         json={
             "status": "OK",
             "results": [
@@ -89,7 +93,7 @@ async def test_google_returns_city_and_district(httpx_mock: HTTPXMock) -> None:
 @pytest.mark.asyncio
 async def test_google_raises_on_zero_results(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="maps.googleapis.com",
+        url=_GOOGLE,
         json={"status": "ZERO_RESULTS", "results": []},
     )
     provider = GoogleMapsProvider(api_key="test-key")
@@ -102,7 +106,7 @@ async def test_google_raises_on_zero_results(httpx_mock: HTTPXMock) -> None:
 @pytest.mark.asyncio
 async def test_cascade_uses_primary(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url__contains="nominatim.openstreetmap.org",
+        url=_NOM,
         json={"address": {"city": "Moscow"}},
     )
     cascade = CascadeGeocodingProvider([NominatimProvider()])
@@ -114,12 +118,12 @@ async def test_cascade_uses_primary(httpx_mock: HTTPXMock) -> None:
 async def test_cascade_falls_back_to_google(httpx_mock: HTTPXMock) -> None:
     # Nominatim fails with 500.
     httpx_mock.add_response(
-        url__contains="nominatim.openstreetmap.org",
+        url=_NOM,
         status_code=500,
     )
     # Google succeeds.
     httpx_mock.add_response(
-        url__contains="maps.googleapis.com",
+        url=_GOOGLE,
         json={
             "status": "OK",
             "results": [
@@ -140,8 +144,8 @@ async def test_cascade_falls_back_to_google(httpx_mock: HTTPXMock) -> None:
 
 @pytest.mark.asyncio
 async def test_cascade_raises_when_all_fail(httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(url__contains="nominatim.openstreetmap.org", status_code=500)
-    httpx_mock.add_response(url__contains="maps.googleapis.com", status_code=500)
+    httpx_mock.add_response(url=_NOM, status_code=500)
+    httpx_mock.add_response(url=_GOOGLE, status_code=500)
     cascade = CascadeGeocodingProvider(
         [NominatimProvider(), GoogleMapsProvider(api_key="k")]
     )

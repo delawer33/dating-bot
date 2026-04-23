@@ -2,7 +2,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
-from bot.transport.adapter import TransportAdapter
+from bot.transport.base import TransportAdapter
 
 logger = logging.getLogger(__name__)
 

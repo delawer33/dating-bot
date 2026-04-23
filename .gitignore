@@ -3,9 +3,6 @@
 .env.*
 !.env.example
 
-AGENTS.md
-API-SPEC.md
-
 # Python
 __pycache__/
 *.py[cod]

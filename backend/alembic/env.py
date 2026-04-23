@@ -1,10 +1,11 @@
 """Alembic env: async migrations using asyncpg driver."""
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from shared.config import SharedConfig
 from shared.db.base import Base
@@ -18,19 +19,23 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Alembic uses sync URLs internally; we convert asyncpg → psycopg2 format only
-# for offline mode. Online mode uses the asyncpg driver directly.
-_settings = SharedConfig()
 
-# Alembic needs a *sync*-compatible URL for offline mode; strip async driver.
-_sync_url = _settings.database_url.replace(
-    "postgresql+asyncpg://", "postgresql+psycopg2://"
-)
+def _database_url() -> str:
+    """Prefer explicit DATABASE_URL (e.g. migrate Docker service); else full app config."""
+    explicit = os.environ.get("DATABASE_URL")
+    if explicit:
+        return explicit.strip()
+    return SharedConfig().database_url
+
+
+def _sync_url() -> str:
+    # Offline mode uses a sync driver.
+    return _database_url().replace("postgresql+asyncpg://", "postgresql+psycopg2://")
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=_sync_url,
+        url=_sync_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -48,7 +53,7 @@ def do_run_migrations(connection) -> None:
 async def run_migrations_online() -> None:
     # Use the asyncpg URL from settings; override the placeholder in alembic.ini.
     cfg = config.get_section(config.config_ini_section, {})
-    cfg["sqlalchemy.url"] = _settings.database_url
+    cfg["sqlalchemy.url"] = _database_url()
 
     connectable = async_engine_from_config(
         cfg,

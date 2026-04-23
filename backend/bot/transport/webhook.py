@@ -10,7 +10,7 @@ from aiohttp.web_runner import AppRunner, TCPSite
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-from bot.transport.adapter import TransportAdapter
+from bot.transport.base import TransportAdapter
 
 logger = logging.getLogger(__name__)
 

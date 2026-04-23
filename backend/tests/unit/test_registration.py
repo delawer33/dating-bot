@@ -1,69 +1,193 @@
 """Unit tests for registration service helpers (no DB required)."""
+import uuid
 from datetime import date, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
 from api.services.registration_service import (
-    _assert_step_order,
+    _assert_step_index,
     _calc_completeness,
-    _infer_step,
     _validate_age,
+    registration_step_from_data,
+    search_preferences_complete,
 )
 from shared.db.models import Profile
 
 
-def _profile(**kwargs) -> Profile:
-    p = Profile.__new__(Profile)
-    for k, v in kwargs.items():
-        object.__setattr__(p, k, v)
-    for field in ("display_name", "birth_date", "gender", "city", "district"):
-        if not hasattr(p, field):
-            object.__setattr__(p, field, None)
-    object.__setattr__(p, "completeness_score", 0)
-    return p
+def _profile(**kwargs: object) -> Profile:
+    """Detached Profile for unit tests (no session)."""
+    defaults: dict[str, object] = {
+        "user_id": uuid.uuid4(),
+        "display_name": None,
+        "bio": None,
+        "birth_date": None,
+        "gender": None,
+        "city": None,
+        "district": None,
+        "latitude": None,
+        "longitude": None,
+        "interests": None,
+        "completeness_score": 0,
+        "updated_at": None,
+    }
+    defaults.update(kwargs)
+    return Profile(**defaults)
 
 
-# ── _infer_step ───────────────────────────────────────────────────────────────
+def _prefs(**kwargs: object) -> SimpleNamespace:
+    base = dict(
+        age_min=None,
+        age_max=None,
+        gender_preferences=None,
+        max_distance_km=None,
+    )
+    base.update(kwargs)
+    return SimpleNamespace(**base)
 
-def test_infer_step_no_profile_returns_display_name() -> None:
-    assert _infer_step(None) == "display_name"
+
+def test_search_preferences_complete_false_when_none() -> None:
+    assert search_preferences_complete(None) is False
 
 
-def test_infer_step_returns_display_name_when_name_missing() -> None:
-    assert _infer_step(_profile()) == "display_name"
+def test_search_preferences_complete_true() -> None:
+    p = _prefs(age_min=18, age_max=40, gender_preferences=[], max_distance_km=50)
+    assert search_preferences_complete(p) is True
 
 
-def test_infer_step_returns_birth_date_after_name() -> None:
+def test_search_preferences_complete_false_when_gender_null() -> None:
+    p = _prefs(age_min=18, age_max=40, gender_preferences=None, max_distance_km=50)
+    assert search_preferences_complete(p) is False
+
+
+# ── registration_step_from_data ───────────────────────────────────────────────
+
+
+def test_step_no_profile_returns_display_name() -> None:
+    assert (
+        registration_step_from_data(
+            None,
+            registration_completed=False,
+            photo_count=0,
+            prefs=None,
+            min_photos=1,
+        )
+        == "display_name"
+    )
+
+
+def test_step_returns_display_name_when_name_missing() -> None:
+    assert (
+        registration_step_from_data(
+            _profile(),
+            registration_completed=False,
+            photo_count=0,
+            prefs=None,
+            min_photos=1,
+        )
+        == "display_name"
+    )
+
+
+def test_step_returns_birth_date_after_name() -> None:
     p = _profile(display_name="Alice")
-    assert _infer_step(p) == "birth_date"
+    assert (
+        registration_step_from_data(
+            p, registration_completed=False, photo_count=0, prefs=None, min_photos=1
+        )
+        == "birth_date"
+    )
 
 
-def test_infer_step_returns_gender_after_birth_date() -> None:
+def test_step_returns_gender_after_birth_date() -> None:
     p = _profile(display_name="Alice", birth_date=date(1995, 5, 20))
-    assert _infer_step(p) == "gender"
+    assert (
+        registration_step_from_data(
+            p, registration_completed=False, photo_count=0, prefs=None, min_photos=1
+        )
+        == "gender"
+    )
 
 
-def test_infer_step_returns_location_after_gender() -> None:
+def test_step_returns_location_after_gender() -> None:
     p = _profile(display_name="Alice", birth_date=date(1995, 5, 20), gender="female")
-    assert _infer_step(p) == "location"
+    assert (
+        registration_step_from_data(
+            p, registration_completed=False, photo_count=0, prefs=None, min_photos=1
+        )
+        == "location"
+    )
 
 
-def test_infer_step_returns_complete_when_all_set() -> None:
+def test_step_returns_photos_when_location_set_insufficient_photos() -> None:
     p = _profile(
         display_name="Alice",
         birth_date=date(1995, 5, 20),
         gender="female",
         city="Moscow",
     )
-    assert _infer_step(p) == "complete"
+    assert (
+        registration_step_from_data(
+            p, registration_completed=False, photo_count=0, prefs=None, min_photos=1
+        )
+        == "photos"
+    )
+
+
+def test_step_returns_search_preferences_when_photos_ok_prefs_incomplete() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+    )
+    prefs = _prefs(age_min=18, age_max=None, gender_preferences=[], max_distance_km=None)
+    assert (
+        registration_step_from_data(
+            p, registration_completed=False, photo_count=1, prefs=prefs, min_photos=1
+        )
+        == "search_preferences"
+    )
+
+
+def test_step_returns_optional_profile_when_prefs_complete() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+    )
+    prefs = _prefs(age_min=18, age_max=40, gender_preferences=[], max_distance_km=50)
+    assert (
+        registration_step_from_data(
+            p, registration_completed=False, photo_count=1, prefs=prefs, min_photos=1
+        )
+        == "optional_profile"
+    )
+
+
+def test_step_returns_complete_when_registration_completed() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+    )
+    prefs = _prefs(age_min=18, age_max=40, gender_preferences=[], max_distance_km=50)
+    assert (
+        registration_step_from_data(
+            p, registration_completed=True, photo_count=1, prefs=prefs, min_photos=1
+        )
+        == "complete"
+    )
 
 
 # ── _validate_age ─────────────────────────────────────────────────────────────
 
+
 def test_validate_age_passes_for_adult() -> None:
-    _validate_age(date(1990, 1, 1))  # no exception
+    _validate_age(date(1990, 1, 1))
 
 
 def test_validate_age_raises_for_minor() -> None:
@@ -77,41 +201,90 @@ def test_validate_age_raises_for_future_date() -> None:
         _validate_age(date.today() + timedelta(days=1))
 
 
-# ── _assert_step_order ────────────────────────────────────────────────────────
-
-def test_assert_step_order_allows_current_step() -> None:
-    p = _profile(display_name="Alice")
-    _assert_step_order(p, "birth_date")  # current step == expected → ok
+# ── _assert_step_index ────────────────────────────────────────────────────────
 
 
-def test_assert_step_order_rejects_past_step() -> None:
-    p = _profile(
-        display_name="Alice",
-        birth_date=date(1995, 5, 20),
-        gender="female",
-        city="Moscow",
-    )
+def test_assert_step_allows_current_step() -> None:
+    _assert_step_index("birth_date", "birth_date")
+
+
+def test_assert_step_rejects_past_step() -> None:
     with pytest.raises(HTTPException, match="already completed"):
-        _assert_step_order(p, "display_name")
+        _assert_step_index("complete", "display_name")
 
 
-def test_assert_step_order_rejects_future_step() -> None:
-    p = _profile()  # current step is display_name
+def test_assert_step_rejects_future_step() -> None:
     with pytest.raises(HTTPException, match="Cannot set"):
-        _assert_step_order(p, "gender")
+        _assert_step_index("display_name", "gender")
 
 
 # ── _calc_completeness ────────────────────────────────────────────────────────
 
+
 def test_calc_completeness_zero_for_empty() -> None:
-    assert _calc_completeness(_profile()) == 0
+    assert _calc_completeness(_profile(), 0) == 0
 
 
-def test_calc_completeness_full_stage2() -> None:
+def test_calc_completeness_full_stage2_no_photos() -> None:
     p = _profile(
         display_name="Alice",
         birth_date=date(1995, 5, 20),
         gender="female",
         city="Moscow",
     )
-    assert _calc_completeness(p) == 40
+    assert _calc_completeness(p, 0) == 40
+
+
+def test_calc_completeness_includes_photos() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+    )
+    assert _calc_completeness(p, 1) == 60
+
+
+def test_calc_completeness_includes_bio() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+        bio="About me",
+    )
+    assert _calc_completeness(p, 1) == 80
+
+
+def test_calc_completeness_includes_interests() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+        interests=["music"],
+    )
+    assert _calc_completeness(p, 1) == 80
+
+
+def test_calc_completeness_bio_and_interests() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+        bio="Hello",
+        interests=["books", "travel"],
+    )
+    assert _calc_completeness(p, 1) == 100
+
+
+def test_calc_completeness_whitespace_bio_does_not_count() -> None:
+    p = _profile(
+        display_name="Alice",
+        birth_date=date(1995, 5, 20),
+        gender="female",
+        city="Moscow",
+        bio="   \n",
+    )
+    assert _calc_completeness(p, 1) == 60
