@@ -1,0 +1,76 @@
+services:
+  db:
+    container_name: cache_demo_db
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - cache_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  cache:
+    container_name: cache_demo_redis
+    image: redis:7
+    networks:
+      - cache_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  app:
+    container_name: cache_demo_app
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    networks:
+      - cache_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+  load-generator:
+    container_name: cache_demo_loader
+    build:
+      context: ./load-generator
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      APP_BASE_URL: http://app:8000
+      RESULTS_PATH: /workspace/README.md
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - cache_network
+    volumes:
+      - ./:/workspace
+
+volumes:
+  postgres_data:
+
+networks:
+  cache_network:
+    driver: bridge

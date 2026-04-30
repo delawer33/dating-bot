@@ -11,6 +11,7 @@ from api.schemas.discovery import DiscoveryLikeResponse, DiscoveryProfileOut, In
 def test_discovery_like_response_matched_with_peer_contact() -> None:
     tid = uuid.uuid4()
     mid = uuid.uuid4()
+    
     m = DiscoveryLikeResponse(
         matched=True,
         match_id=mid,
@@ -19,6 +20,7 @@ def test_discovery_like_response_matched_with_peer_contact() -> None:
         peer_username="ann_user",
         target_user_id=tid,
     )
+    
     assert m.peer_telegram_id == 111
     assert m.peer_username == "ann_user"
 
