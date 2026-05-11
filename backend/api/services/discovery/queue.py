@@ -28,9 +28,12 @@ async def top_up_redis_queue(
     ranked = await rank_candidate_ids(session, viewer.id, viewer_prefs, viewer_profile)
     if not ranked:
         return
-    await redis.delete(key)
-    await redis.rpush(key, *[str(x) for x in ranked[:PREFETCH_BATCH]])
-    await redis.expire(key, DISCOVERY_TTL_SEC)
+    batch = [str(x) for x in ranked[:PREFETCH_BATCH]]
+    pipe = redis.pipeline(transaction=False)
+    pipe.delete(key)
+    pipe.rpush(key, *batch)
+    pipe.expire(key, DISCOVERY_TTL_SEC)
+    await pipe.execute()
 
 
 async def pop_next_target_id(

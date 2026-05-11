@@ -6,9 +6,22 @@ _engine = None
 _session_factory = None
 
 
-def init_db(database_url: str) -> None:
+def init_db(
+    database_url: str,
+    *,
+    pool_size: int = 5,
+    max_overflow: int = 10,
+    pool_recycle: int = 1800,
+) -> None:
     global _engine, _session_factory
-    _engine = create_async_engine(database_url, echo=False, pool_pre_ping=True)
+    _engine = create_async_engine(
+        database_url,
+        echo=False,
+        pool_pre_ping=True,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_recycle=pool_recycle,
+    )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 

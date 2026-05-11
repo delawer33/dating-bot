@@ -59,20 +59,26 @@ async def rank_candidate_ids(
         and viewer_profile
         and viewer_profile.latitude is not None
         and viewer_profile.longitude is not None
+        and raw_ids
     ):
         max_km = float(viewer_prefs.max_distance_km)
-        filtered: list[uuid.UUID] = []
-        for cand_id in raw_ids:
-            p = await session.get(Profile, cand_id)
-            if not p or p.latitude is None or p.longitude is None:
-                continue
-            d = haversine_km(
-                viewer_profile.latitude,
-                viewer_profile.longitude,
-                p.latitude,
-                p.longitude,
+        loc_result = await session.execute(
+            select(Profile.user_id, Profile.latitude, Profile.longitude).where(
+                Profile.user_id.in_(raw_ids)
             )
-            if d <= max_km:
+        )
+        loc_by_user: dict[uuid.UUID, tuple[float, float]] = {}
+        for uid, lat, lon in loc_result.all():
+            if lat is not None and lon is not None:
+                loc_by_user[uid] = (float(lat), float(lon))
+        filtered: list[uuid.UUID] = []
+        vlat, vlon = viewer_profile.latitude, viewer_profile.longitude
+        for cand_id in raw_ids:
+            loc = loc_by_user.get(cand_id)
+            if loc is None:
+                continue
+            plat, plon = loc
+            if haversine_km(vlat, vlon, plat, plon) <= max_km:
                 filtered.append(cand_id)
         raw_ids = filtered
 

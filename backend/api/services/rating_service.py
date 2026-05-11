@@ -21,13 +21,25 @@ async def count_successful_referrals(session: AsyncSession, referrer_id: uuid.UU
 
 
 async def recompute_user_rating(session: AsyncSession, user_id: uuid.UUID) -> UserRating:
-    user = await session.get(User, user_id)
-    if not user:
+    ref_count_sq = (
+        select(func.count())
+        .select_from(ReferralEvent)
+        .where(ReferralEvent.referrer_id == user_id)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(User, Profile, UserPreferences, UserBehaviorStats, ref_count_sq)
+        .select_from(User)
+        .outerjoin(Profile, Profile.user_id == User.id)
+        .outerjoin(UserPreferences, UserPreferences.user_id == User.id)
+        .outerjoin(UserBehaviorStats, UserBehaviorStats.user_id == User.id)
+        .where(User.id == user_id)
+    )
+    bundle = (await session.execute(stmt)).one_or_none()
+    if bundle is None:
         raise ValueError(f"User not found: {user_id}")
-
-    profile = await session.get(Profile, user_id)
-    prefs = await session.get(UserPreferences, user_id)
-    stats_row = await session.get(UserBehaviorStats, user_id)
+    user, profile, prefs, stats_row, ref_count_raw = bundle
+    ref_count = int(ref_count_raw or 0)
 
     completeness = int(profile.completeness_score) if profile else 0
     has_distance_pref = bool(prefs and prefs.max_distance_km is not None)
@@ -41,8 +53,6 @@ async def recompute_user_rating(session: AsyncSession, user_id: uuid.UUID) -> Us
             matches_count=stats_row.matches_count,
         )
     behavioral, behavioral_detail = ra.compute_behavioral_score(stats_input)
-
-    ref_count = await count_successful_referrals(session, user_id)
     referral_bonus, referral_detail = ra.compute_referral_bonus(ref_count)
 
     combined = ra.compute_combined(primary, behavioral, referral_bonus)
@@ -57,7 +67,7 @@ async def recompute_user_rating(session: AsyncSession, user_id: uuid.UUID) -> Us
     )
 
     now = datetime.now(timezone.utc)
-    stmt = (
+    upsert_stmt = (
         insert(UserRating)
         .values(
             user_id=user_id,
@@ -82,7 +92,7 @@ async def recompute_user_rating(session: AsyncSession, user_id: uuid.UUID) -> Us
             },
         )
     )
-    await session.execute(stmt)
+    await session.execute(upsert_stmt)
     await session.flush()
     row = await session.get(UserRating, user_id)
     assert row is not None

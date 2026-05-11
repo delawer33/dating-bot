@@ -9,13 +9,24 @@ _TIMEOUT = 5.0
 class NominatimProvider:
     def __init__(self, user_agent: str = "DatingBot/1.0") -> None:
         self._user_agent = user_agent
+        self._client: httpx.AsyncClient | None = None
+
+    def _http(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                headers={"User-Agent": self._user_agent},
+            )
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def reverse_geocode(self, lat: float, lon: float) -> GeoLocation:
         params = {"lat": lat, "lon": lon, "format": "json", "zoom": 14}
-        headers = {"User-Agent": self._user_agent}
-
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.get(_BASE_URL, params=params, headers=headers)
+        response = await self._http().get(_BASE_URL, params=params)
 
         if response.status_code != 200:
             raise GeocodingError(f"Nominatim HTTP {response.status_code}")

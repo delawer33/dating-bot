@@ -1,6 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from api.dependencies import BotAuth, DBSession, EventPublisherDep, RedisClient, S3Client
+from api.dependencies import DBSession, EventPublisherDep, PhotoPresignerDep, RedisClient, require_bot_auth
 from api.schemas.discovery import (
     DiscoveryActionRequest,
     DiscoveryIncomingLikesRequest,
@@ -13,7 +13,11 @@ from api.schemas.discovery import (
 )
 from api.services import discovery_service as disc
 
-router = APIRouter(prefix="/discovery", tags=["discovery"])
+router = APIRouter(
+    prefix="/discovery",
+    tags=["discovery"],
+    dependencies=[Depends(require_bot_auth)],
+)
 
 
 @router.post("/next", response_model=DiscoveryNextResponse)
@@ -21,10 +25,9 @@ async def discovery_next(
     body: DiscoveryNextRequest,
     session: DBSession,
     redis: RedisClient,
-    s3: S3Client,
-    _auth: BotAuth,
+    presigner: PhotoPresignerDep,
 ) -> DiscoveryNextResponse:
-    data = await disc.get_next_profile(redis, session, body.telegram_id, s3)
+    data = await disc.get_next_profile(redis, session, body.telegram_id, presigner)
     return DiscoveryNextResponse(**data)
 
 
@@ -34,7 +37,6 @@ async def discovery_like(
     session: DBSession,
     redis: RedisClient,
     publisher: EventPublisherDep,
-    _auth: BotAuth,
 ) -> DiscoveryLikeResponse:
     data = await disc.record_like(
         redis,
@@ -52,7 +54,6 @@ async def discovery_skip(
     session: DBSession,
     redis: RedisClient,
     publisher: EventPublisherDep,
-    _auth: BotAuth,
 ) -> DiscoverySkipResponse:
     data = await disc.record_skip(
         redis,
@@ -68,12 +69,11 @@ async def discovery_skip(
 async def discovery_incoming_likes(
     body: DiscoveryIncomingLikesRequest,
     session: DBSession,
-    s3: S3Client,
-    _auth: BotAuth,
+    presigner: PhotoPresignerDep,
 ) -> DiscoveryIncomingLikesResponse:
     if body.mode == "inbox":
         rows = await disc.list_incoming_likes_inbox(
-            session, body.telegram_id, s3_client=s3
+            session, body.telegram_id, presigner=presigner
         )
     else:
         lim = min(max(body.limit, 1), 100)

@@ -66,6 +66,16 @@ async def test_nominatim_raises_on_http_error(httpx_mock: HTTPXMock) -> None:
         await provider.reverse_geocode(55.75, 37.62)
 
 
+@pytest.mark.asyncio
+async def test_nominatim_reuses_http_client_across_calls(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=_NOM, json={"address": {"city": "A"}})
+    httpx_mock.add_response(url=_NOM, json={"address": {"city": "B"}})
+    provider = NominatimProvider()
+    assert (await provider.reverse_geocode(1.0, 2.0)).city == "A"
+    assert (await provider.reverse_geocode(3.0, 4.0)).city == "B"
+    await provider.aclose()
+
+
 # ── Google Maps ───────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

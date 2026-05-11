@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from botocore.client import BaseClient
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import settings
 from api.services import registration_service as reg_svc
+from api.services.photo_presign import PhotoPresigner
 from api.services.profile_card import build_profile_card
 from api.services.profile_photo_service import count_profile_photos
 from shared.db.models import Profile, User
@@ -17,7 +17,7 @@ from shared.db.models import Profile, User
 async def get_profile_me(
     session: AsyncSession,
     telegram_id: int,
-    s3_client: BaseClient | None,
+    presigner: PhotoPresigner | None,
 ) -> dict:
     result = await session.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
@@ -37,7 +37,7 @@ async def get_profile_me(
 
     profile_payload = None
     if profile is not None:
-        card = await build_profile_card(session, user.id, s3_client)
+        card = await build_profile_card(session, user.id, presigner)
         profile_payload = {**card, "completeness_score": int(profile.completeness_score)}
 
     prefs_payload = None

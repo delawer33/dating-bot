@@ -1,6 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from api.dependencies import BotAuth, DBSession, GeoProvider, S3Client
+from api.dependencies import DBSession, GeoProvider, S3Client, require_bot_auth
 from api.schemas.profile import TelegramIdBody
 from api.schemas.registration import (
     BirthDateRequest,
@@ -20,14 +20,17 @@ from api.schemas.registration import (
 )
 from api.services import registration_service as svc
 
-router = APIRouter(prefix="/registration", tags=["registration"])
+router = APIRouter(
+    prefix="/registration",
+    tags=["registration"],
+    dependencies=[Depends(require_bot_auth)],
+)
 
 
 @router.post("/start", response_model=RegistrationStateResponse)
 async def start_registration(
     body: StartRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     user, is_new = await svc.registration_start(
         session,
@@ -43,7 +46,6 @@ async def start_registration(
 async def get_referral_code(
     body: TelegramIdBody,
     session: DBSession,
-    _auth: BotAuth,
 ) -> ReferralCodeResponse:
     data = await svc.get_referral_info(session, body.telegram_id)
     return ReferralCodeResponse(**data)
@@ -53,7 +55,6 @@ async def get_referral_code(
 async def set_display_name(
     body: DisplayNameRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_display_name(session, body.telegram_id, body.display_name)
     state = await svc.get_registration_state(session, body.telegram_id)
@@ -64,7 +65,6 @@ async def set_display_name(
 async def set_birth_date(
     body: BirthDateRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_birth_date(session, body.telegram_id, body.birth_date)
     state = await svc.get_registration_state(session, body.telegram_id)
@@ -75,7 +75,6 @@ async def set_birth_date(
 async def set_gender(
     body: GenderRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_gender(session, body.telegram_id, body.gender)
     state = await svc.get_registration_state(session, body.telegram_id)
@@ -87,7 +86,6 @@ async def set_location(
     body: LocationRequest,
     session: DBSession,
     geocoder: GeoProvider,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_location(
         session, body.telegram_id, body.latitude, body.longitude, geocoder
@@ -101,7 +99,6 @@ async def add_registration_photo(
     body: PhotoRequest,
     session: DBSession,
     s3: S3Client,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.add_registration_photo(
         session, body.telegram_id, body.file_id, s3
@@ -114,7 +111,6 @@ async def add_registration_photo(
 async def registration_search_prefs_age(
     body: SearchPrefsAgeRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_registration_search_age(
         session, body.telegram_id, body.age_min, body.age_max
@@ -127,7 +123,6 @@ async def registration_search_prefs_age(
 async def registration_search_prefs_gender(
     body: SearchPrefsGenderRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_registration_search_gender(
         session, body.telegram_id, list(body.gender_preferences)
@@ -140,7 +135,6 @@ async def registration_search_prefs_gender(
 async def registration_search_prefs_distance(
     body: SearchPrefsDistanceRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_registration_search_distance(
         session, body.telegram_id, body.max_distance_km
@@ -153,7 +147,6 @@ async def registration_search_prefs_distance(
 async def registration_bio(
     body: RegistrationBioRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_registration_bio(session, body.telegram_id, body.bio)
     state = await svc.get_registration_state(session, body.telegram_id)
@@ -164,7 +157,6 @@ async def registration_bio(
 async def registration_interests(
     body: RegistrationInterestsRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.set_registration_interests(session, body.telegram_id, body.interest_ids)
     state = await svc.get_registration_state(session, body.telegram_id)
@@ -175,7 +167,6 @@ async def registration_interests(
 async def complete_registration(
     body: CompleteRequest,
     session: DBSession,
-    _auth: BotAuth,
 ) -> RegistrationStateResponse:
     await svc.complete_registration(session, body.telegram_id)
     state = await svc.get_registration_state(session, body.telegram_id)

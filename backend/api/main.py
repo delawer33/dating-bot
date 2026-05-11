@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,9 +24,14 @@ _RABBITMQ_CONNECT_RETRY_DELAY_S = 2.0
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting API (env=%s)", settings.app_env)
-    init_db(settings.database_url)
+    init_db(
+        settings.database_url,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        pool_recycle=settings.database_pool_recycle,
+    )
     s3_client = build_s3_client(
         endpoint_url=settings.s3_endpoint_url,
         access_key=settings.s3_access_key,
@@ -76,27 +82,36 @@ async def lifespan(app: FastAPI):
     logger.info("API shutdown complete")
 
 
-app = FastAPI(
-    title="Dating Bot Profile API",
-    version="0.1.0",
-    lifespan=lifespan,
-    docs_url=None if settings.is_production else "/docs",
-    redoc_url=None if settings.is_production else "/redoc",
-)
+def _mount_routes(application: FastAPI) -> None:
+    application.include_router(registration.router)
+    application.include_router(profile.router)
+    application.include_router(preferences.router)
+    application.include_router(discovery.router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if not settings.is_production else [],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(registration.router)
-app.include_router(profile.router)
-app.include_router(preferences.router)
-app.include_router(discovery.router)
+    @application.get("/health")
+    async def health() -> dict:
+        return {"status": "ok", "env": settings.app_env}
 
 
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok", "env": settings.app_env}
+def create_app(*, use_lifespan: bool = True) -> FastAPI:
+    """Build the FastAPI app. Tests set ``use_lifespan=False`` to skip broker/DB/S3 startup."""
+    kwargs: dict = {
+        "title": "Dating Bot Profile API",
+        "version": "0.1.0",
+        "docs_url": None if settings.is_production else "/docs",
+        "redoc_url": None if settings.is_production else "/redoc",
+    }
+    if use_lifespan:
+        kwargs["lifespan"] = lifespan
+    application = FastAPI(**kwargs)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if not settings.is_production else [],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    _mount_routes(application)
+    return application
+
+
+app = create_app(use_lifespan=True)

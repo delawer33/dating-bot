@@ -6,7 +6,6 @@ import logging
 import uuid
 
 import redis.asyncio as aioredis
-from botocore.client import BaseClient
 from fastapi import HTTPException
 from sqlalchemy import and_, exists, func, select
 from sqlalchemy.exc import IntegrityError
@@ -15,7 +14,8 @@ from sqlalchemy.orm import aliased
 
 from api.messaging.events import EventPublisher
 from api.services import registration_service as reg_svc
-from api.services.profile_card import build_profile_card
+from api.services.photo_presign import PhotoPresigner
+from api.services.profile_card import build_profile_card, build_profile_cards_for_users
 from shared.db.models import Match, Profile, ProfileInteraction, User, UserPreferences
 
 from .queue import invalidate_discovery_queue, pop_next_target_id
@@ -28,14 +28,16 @@ async def _get_user_by_telegram(session: AsyncSession, telegram_id: int) -> User
     return result.scalar_one_or_none()
 
 
-async def _require_registered_viewer(session: AsyncSession, telegram_id: int) -> User:
+async def _require_registered_viewer(
+    session: AsyncSession, telegram_id: int
+) -> tuple[User, UserPreferences]:
     user = await _get_user_by_telegram(session, telegram_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     prefs = await reg_svc.get_preferences_if_exists(session, user.id)
     if prefs is None or not user.registration_completed:
         raise HTTPException(status_code=403, detail="Registration not complete.")
-    return user
+    return user, prefs
 
 
 async def list_incoming_likes(
@@ -45,7 +47,7 @@ async def list_incoming_likes(
     limit: int = 40,
 ) -> list[dict]:
     """All likes toward this user (newest first). Telegram contact only if pair has a Match."""
-    viewer = await _require_registered_viewer(session, telegram_id)
+    viewer, _prefs = await _require_registered_viewer(session, telegram_id)
     pi = ProfileInteraction
     actor_user = aliased(User)
     stmt = (
@@ -100,10 +102,10 @@ async def list_incoming_likes_inbox(
     session: AsyncSession,
     telegram_id: int,
     *,
-    s3_client: BaseClient | None,
+    presigner: PhotoPresigner | None,
 ) -> list[dict]:
     """Up to 10 people who liked you, no match yet, and you have not liked/skipped them back."""
-    viewer = await _require_registered_viewer(session, telegram_id)
+    viewer, _prefs = await _require_registered_viewer(session, telegram_id)
     inc = aliased(ProfileInteraction, name="inc_like")
     actor_user = aliased(User)
     resp = aliased(ProfileInteraction, name="resp")
@@ -140,13 +142,14 @@ async def list_incoming_likes_inbox(
         .limit(10)
     )
     result = await session.execute(stmt)
+    rows = result.all()
+    actor_ids = [r[1] for r in rows]
+    cards = await build_profile_cards_for_users(session, actor_ids, presigner)
     out: list[dict] = []
-    for row in result.all():
+    for row in rows:
         iid, actor_id, created_at, display_name = row
-        profile_dict: dict | None = None
-        try:
-            profile_dict = await build_profile_card(session, actor_id, s3_client)
-        except HTTPException:
+        profile_dict = cards.get(actor_id)
+        if profile_dict is None:
             logger.warning("Inbox skip actor %s: profile card missing", actor_id)
             continue
         out.append(
@@ -167,24 +170,22 @@ async def list_incoming_likes_inbox(
 async def build_profile_out(
     session: AsyncSession,
     target_id: uuid.UUID,
-    s3_client: BaseClient | None,
+    presigner: PhotoPresigner | None,
 ) -> dict:
-    return await build_profile_card(session, target_id, s3_client)
+    return await build_profile_card(session, target_id, presigner)
 
 
 async def get_next_profile(
     redis: aioredis.Redis,
     session: AsyncSession,
     telegram_id: int,
-    s3_client: BaseClient | None,
+    presigner: PhotoPresigner | None,
 ) -> dict:
-    viewer = await _require_registered_viewer(session, telegram_id)
-    prefs = await reg_svc.get_preferences_if_exists(session, viewer.id)
-    assert prefs is not None
+    viewer, prefs = await _require_registered_viewer(session, telegram_id)
     tid = await pop_next_target_id(redis, session, viewer, prefs)
     if tid is None:
         return {"profile": None, "exhausted": True}
-    profile_out = await build_profile_out(session, tid, s3_client)
+    profile_out = await build_profile_out(session, tid, presigner)
     return {"profile": profile_out, "exhausted": False}
 
 
@@ -200,7 +201,7 @@ async def record_like(
     telegram_id: int,
     target_user_id: uuid.UUID,
 ) -> dict:
-    actor = await _require_registered_viewer(session, telegram_id)
+    actor, _prefs = await _require_registered_viewer(session, telegram_id)
     if target_user_id == actor.id:
         raise HTTPException(status_code=422, detail="Cannot like yourself.")
     target = await session.get(User, target_user_id)
@@ -309,7 +310,7 @@ async def record_skip(
     telegram_id: int,
     target_user_id: uuid.UUID,
 ) -> dict:
-    actor = await _require_registered_viewer(session, telegram_id)
+    actor, _prefs = await _require_registered_viewer(session, telegram_id)
     if target_user_id == actor.id:
         raise HTTPException(status_code=422, detail="Cannot skip yourself.")
 

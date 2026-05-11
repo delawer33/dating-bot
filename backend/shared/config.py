@@ -10,6 +10,13 @@ class SharedConfig(BaseSettings):
     )
 
     database_url: str
+    database_pool_size: int = Field(default=5, ge=1, le=50)
+    database_max_overflow: int = Field(default=10, ge=0, le=50)
+    database_pool_recycle: int = Field(
+        default=1800,
+        ge=60,
+        description="Recycle connections after this many seconds (avoids stale server-side closes).",
+    )
     redis_url: str
     rabbitmq_url: str = Field(
         default="amqp://guest:guest@localhost:5672//",

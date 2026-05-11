@@ -10,6 +10,7 @@ from api.messaging.events import EventPublisher
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import settings
+from api.services.photo_presign import BotoPhotoPresigner
 from shared.db.session import get_session
 from shared.geo.cascade import CascadeGeocodingProvider
 from shared.geo.google import GoogleMapsProvider
@@ -60,11 +61,16 @@ def get_s3_client(request: Request) -> BaseClient:
     return request.app.state.s3_client
 
 
+def get_photo_presigner(request: Request) -> BotoPhotoPresigner:
+    return BotoPhotoPresigner(request.app.state.s3_client, settings.s3_bucket)
+
+
 DBSession = Annotated[AsyncSession, Depends(get_session)]
 BotAuth = Annotated[None, Depends(require_bot_auth)]
 GeoProvider = Annotated[CascadeGeocodingProvider, Depends(get_geocoding_provider)]
 RedisClient = Annotated[aioredis.Redis, Depends(get_redis)]
 S3Client = Annotated[BaseClient, Depends(get_s3_client)]
+PhotoPresignerDep = Annotated[BotoPhotoPresigner, Depends(get_photo_presigner)]
 
 
 def get_event_publisher(request: Request) -> EventPublisher:
