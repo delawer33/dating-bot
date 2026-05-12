@@ -69,7 +69,6 @@ services:
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
       - ./backend/shared:/app/shared
-    command: ["alembic", "upgrade", "head"]
     depends_on:
       postgres:
         condition: service_healthy

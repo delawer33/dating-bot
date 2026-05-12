@@ -107,6 +107,6 @@ live in `INTEREST_LABELS_RU`.
 
 ## Migrate Docker image
 
-Slim `backend/migrate/Dockerfile` + `requirements-migrate.txt`; compose passes **`DATABASE_URL`**
+Slim `backend/migrate/Dockerfile` + `requirements-migrate.txt`; copies **`alembic/`**, **`alembic.ini`**, and **`shared/`**; default **`CMD`** is **`alembic upgrade head`**. Compose passes **`DATABASE_URL`**
 only. **`alembic/env.py`** uses `os.environ["DATABASE_URL"]` when set so migrations do not need
-full `SharedConfig`.
+full `SharedConfig`. CI publishes **`api`**, **`bot`**, and **`migrate`** images to GHCR via **`.github/workflows/container.yml`**.
