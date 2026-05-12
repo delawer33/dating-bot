@@ -35,3 +35,18 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 async def close_db() -> None:
     if _engine:
         await _engine.dispose()
+
+
+def db_pool_stats() -> dict[str, int] | None:
+    """Snapshot of the async SQLAlchemy pool for metrics (None if DB not initialised)."""
+    if _engine is None:
+        return None
+    pool = _engine.pool
+    try:
+        return {
+            "size": pool.size(),
+            "checked_out": pool.checkedout(),
+            "overflow": pool.overflow(),
+        }
+    except Exception:
+        return None

@@ -11,8 +11,13 @@ from bot.config import settings
 from bot.handlers import discovery, menu, registration, start
 from bot.handlers import settings as settings_handlers
 from bot.transport.adapter import build_transport
+from shared.logging_setup import configure_logging
 
-logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(message)s")
+configure_logging(
+    service="bot",
+    log_level=settings.log_level,
+    json_logs=settings.effective_log_json,
+)
 logger = logging.getLogger(__name__)
 
 

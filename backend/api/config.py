@@ -20,6 +20,10 @@ class APIConfig(SharedConfig):
 
     google_maps_api_key: str | None = None
     nominatim_user_agent: str = "DatingBot/1.0"
+    metrics_enabled: bool = Field(
+        default=True,
+        description="Expose GET /metrics (Prometheus) and HTTP middleware instrumentation.",
+    )
 
 
 settings = APIConfig()

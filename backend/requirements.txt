@@ -30,3 +30,6 @@ boto3>=1.35.0
 # Messaging / background jobs
 aio-pika>=9.4.0
 celery[redis]>=5.4.0
+
+# Metrics (Prometheus text exposition on the API)
+prometheus-client>=0.21.0

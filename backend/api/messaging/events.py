@@ -11,6 +11,8 @@ from typing import Any
 import aio_pika
 from aio_pika import ExchangeType, Message
 
+from api.metrics import record_event_publish
+
 logger = logging.getLogger(__name__)
 
 EXCHANGE_NAME = "dating.events"
@@ -51,7 +53,12 @@ class EventPublisher:
         }
         body = json.dumps(envelope, default=str).encode("utf-8")
         msg = Message(body, delivery_mode=aio_pika.DeliveryMode.PERSISTENT)
-        await self._exchange.publish(msg, routing_key=routing_key)
+        try:
+            await self._exchange.publish(msg, routing_key=routing_key)
+        except Exception:
+            record_event_publish(event_type, "failure")
+            raise
+        record_event_publish(event_type, "success")
         logger.debug("Published %s rk=%s", event_type, routing_key)
 
     async def publish_profile_liked(

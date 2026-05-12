@@ -19,6 +19,7 @@ os.environ.setdefault("S3_SECRET_KEY", "minio")
 os.environ.setdefault("S3_BUCKET", "test-bucket")
 os.environ.setdefault("API_BASE_URL", "http://api:8000")
 os.environ.setdefault("API_SECRET", "test-secret")
+os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 
 @pytest.fixture(autouse=True)

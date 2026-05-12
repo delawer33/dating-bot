@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from api.messaging.events import EventPublisher
+from api.metrics import record_discovery_action
 from api.services import registration_service as reg_svc
 from api.services.photo_presign import PhotoPresigner
 from api.services.profile_card import build_profile_card, build_profile_cards_for_users
@@ -184,7 +185,9 @@ async def get_next_profile(
     viewer, prefs = await _require_registered_viewer(session, telegram_id)
     tid = await pop_next_target_id(redis, session, viewer, prefs)
     if tid is None:
+        record_discovery_action("next", "empty")
         return {"profile": None, "exhausted": True}
+    record_discovery_action("next", "profile")
     profile_out = await build_profile_out(session, tid, presigner)
     return {"profile": profile_out, "exhausted": False}
 
@@ -263,6 +266,7 @@ async def record_like(
             detail="Already interacted with this profile.",
         ) from exc
 
+    record_discovery_action("like", "committed")
     await invalidate_discovery_queue(redis, actor.id)
 
     try:
@@ -341,6 +345,7 @@ async def record_skip(
             detail="Already interacted with this profile.",
         ) from exc
 
+    record_discovery_action("skip", "committed")
     await invalidate_discovery_queue(redis, actor.id)
 
     try:

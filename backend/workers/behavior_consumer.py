@@ -17,11 +17,19 @@ from aio_pika import ExchangeType
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.messaging.events import EXCHANGE_NAME
+from shared.config import SharedConfig
 from shared.db.models import UserBehaviorStats
+from shared.logging_setup import configure_logging
 from workers.celery_app import celery_app
 from workers.db import create_async_engine_and_sessionmaker
 from workers.notification_hooks import send_telegram_for_event
 
+_cfg = SharedConfig()
+configure_logging(
+    service="behavior-consumer",
+    log_level=_cfg.log_level,
+    json_logs=_cfg.effective_log_json,
+)
 logger = logging.getLogger(__name__)
 
 QUEUE_NAME = "behavior.aggregate"
@@ -161,7 +169,6 @@ async def run_consumer() -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     asyncio.run(run_consumer())
 
 

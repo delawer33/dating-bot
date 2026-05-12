@@ -53,6 +53,12 @@ Great-circle distance for discovery filters: `shared/geo/distance.py` (`haversin
 **Bot→API HTTP:** `bot/api_client.py` uses one long-lived `httpx.AsyncClient` (`init_api_http` /
 `close_api_http` from `bot/main.py`).
 
+## Logging
+
+Central setup: `shared/logging_setup.py` (`configure_logging`). The API adds `RequestContextMiddleware` (`api/middleware/request_context.py`) for `X-Request-ID` and `http_request` access lines. Env: `LOG_LEVEL`, `LOG_JSON`, `APP_ENV` (JSON in prod when `LOG_JSON` is unset). Details: repo root `STAGE_4.md` (Logging).
+
+**Metrics:** Prometheus + Grafana (`observability/`, Compose profile **`observability`**). Dashboards include Grafana.com defaults **9628** (Postgres), **10991** (RabbitMQ), **13502** (MinIO) plus **`dating-api.json`**. See `STAGE_4.md` (Metrics) and `observability/README.md`.
+
 ## DB schema
 
 Migrations: `alembic upgrade head` (run via the `migrate` compose service).  

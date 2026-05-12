@@ -23,6 +23,11 @@ class SharedConfig(BaseSettings):
         description="AMQP URL for aio-pika and Celery broker",
     )
     app_env: str = "dev"
+    log_level: str = Field(default="INFO", description="Root log level (DEBUG, INFO, WARNING, ERROR)")
+    log_json: bool | None = Field(
+        default=None,
+        description="If true, emit JSON lines; if null, JSON when app_env=prod",
+    )
     registration_min_photos: int = 1
     registration_max_photos: int = 6
     preferences_max_distance_km: int = Field(default=500, ge=1, le=50_000)
@@ -34,3 +39,9 @@ class SharedConfig(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
+
+    @property
+    def effective_log_json(self) -> bool:
+        if self.log_json is not None:
+            return self.log_json
+        return self.is_production

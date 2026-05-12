@@ -166,3 +166,37 @@ async def test_cascade_raises_when_all_fail(httpx_mock: HTTPXMock) -> None:
 def test_cascade_requires_at_least_one_provider() -> None:
     with pytest.raises(ValueError):
         CascadeGeocodingProvider([])
+
+
+@pytest.mark.asyncio
+async def test_cascade_geocode_metrics_hook(httpx_mock: HTTPXMock) -> None:
+    from shared.geo import cascade as geo_cascade
+
+    calls: list[tuple[str, str]] = []
+
+    def hook(provider: str, outcome: str) -> None:
+        calls.append((provider, outcome))
+
+    geo_cascade.set_geocode_metrics_hook(hook)
+    try:
+        httpx_mock.add_response(url=_NOM, status_code=500)
+        httpx_mock.add_response(
+            url=_GOOGLE,
+            json={
+                "status": "OK",
+                "results": [
+                    {"address_components": [{"long_name": "SPb", "types": ["locality"]}]}
+                ],
+            },
+        )
+        cascade = CascadeGeocodingProvider(
+            [NominatimProvider(), GoogleMapsProvider(api_key="k")]
+        )
+        result = await cascade.reverse_geocode(59.95, 30.32)
+        assert result.city == "SPb"
+        assert calls == [
+            ("NominatimProvider", "failure"),
+            ("GoogleMapsProvider", "success"),
+        ]
+    finally:
+        geo_cascade.set_geocode_metrics_hook(None)

@@ -1,5 +1,60 @@
 # Stage 4
 
+## Logging
+
+Structured logging is configured in **`shared/logging_setup.py`**: one process-wide root handler, a per-service label (`api`, `bot`, `behavior-consumer`, `celery-worker`, `celery-beat`), and optional **`X-Request-ID`** correlation on the FastAPI app.
+
+**Configuration** (`SharedConfig` in `shared/config.py`, env-backed): **`LOG_LEVEL`** (default `INFO`), **`LOG_JSON`** (optional boolean; when unset, JSON lines are used only when **`APP_ENV=prod`**). See `backend/.env.example`.
+
+**API** (`api/main.py`): calls `configure_logging` before other imports that emit logs. **`api/middleware/request_context.py`** registers `RequestContextMiddleware` after CORS: accepts or generates `X-Request-ID`, attaches it to responses, sets a `contextvars` scope for the request so log lines include `rid=…` in text mode or `request_id` in JSON mode, logs one **`http_request`** line per response (skipped for **`GET /health`** to keep probes quiet), and logs **`unhandled_exception`** before re-raising for true 500s. Uvicorn access logging is disabled in **`api/Dockerfile`** (`--no-access-log`) so access lines are not duplicated.
+
+**Bot** (`bot/main.py`) and **RabbitMQ behavior consumer** (`workers/behavior_consumer.py`) each call `configure_logging` at startup with the same env-driven level and JSON policy. **Celery** (`workers/celery_app.py`) attaches **`worker_init`** and **`beat_init`** signals so worker and beat processes configure logging after the prefork pool is up.
+
+**Auth failures**: `require_bot_auth` in `api/dependencies.py` logs **`bot_auth_failed`** at warning (never logs the secret).
+
+**Tests**: `tests/conftest.py` sets **`LOG_LEVEL=WARNING`** by default to reduce noise. Unit tests for helpers live in **`tests/unit/test_logging_setup.py`**.
+
+## Metrics (Prometheus + Grafana)
+
+The API exposes **`GET /metrics`** (Prometheus text format) when **`METRICS_ENABLED`** is true (**`APIConfig`** in `api/config.py`, default **true**). Implementation: **`api/metrics.py`**.
+
+**HTTP:** **`http_requests_total`** `{method,path,status}`, **`http_request_duration_seconds`** histogram `{method,path}`, **`http_requests_in_progress`** gauge (excludes **`GET /metrics`**). **`PrometheusMetricsMiddleware`** records **after** routing so **`path`** is the OpenAPI template. **`GET /metrics`** is excluded from HTTP middleware counts; access logs skip **`/metrics`** (see Logging).
+
+**Domain / infra:** **`event_publish_total`** `{event_type,result}` (`success` / `failure`) on RabbitMQ publish in **`api/messaging/events.py`**. **`bot_auth_failures_total`** on failed **`X-Bot-Secret`** in **`api/dependencies.py`**. **`discovery_actions_total`** `{operation,outcome}` for discovery feed and commits (`next`/`empty`|`profile`, `like`/`committed`, `skip`/`committed`) in **`api/services/discovery/interactions.py`**. **`geocode_reverse_attempts_total`** `{provider,outcome}` via optional hook **`shared/geo/cascade.py`** (`set_geocode_metrics_hook`), wired from **`api/main.py`** lifespan. **DB pool** gauges (**`db_pool_connections_checked_out`**, **`db_pool_connections_size`**, **`db_pool_overflow`**) refreshed on each **`/metrics`** scrape from **`shared/db/session.py::db_pool_stats`**.
+
+Tests: **`create_app(..., enable_metrics=False)`** omits **`/metrics`** and middleware. **`tests/unit/test_api_metrics.py`**, **`tests/unit/test_geocoding.py`** (cascade metrics hook).
+
+### Grafana (Docker Compose profile `observability`)
+
+**Prometheus** (`observability/prometheus.yml`) scrapes every 15s:
+
+| Job | Target | Notes |
+|-----|--------|--------|
+| `dating-api` | `api:8000/metrics` | Application metrics |
+| `postgres` | `postgres_exporter:9187` | **`postgres_exporter`** service (same profile); DB user/password match **`postgres`** |
+| `rabbitmq` | `rabbitmq:15692` | **`rabbitmq_prometheus`** plugin enabled in **`observability/docker/rabbitmq/Dockerfile`** (image builds from official `rabbitmq:3-management-alpine`) |
+| `minio` | `minio:9000/minio/v2/metrics/cluster` | Compose sets **`MINIO_PROMETHEUS_AUTH_TYPE=public`** so Prometheus can scrape without a bearer token (**dev-only risk**; see **`observability/README.md`**) |
+
+**Grafana** provisions the Prometheus datasource (`uid: **prometheus**`) and file dashboards under **`observability/grafana/dashboards/`**:
+
+- **`dating-api.json`** — project dashboard (HTTP, events, discovery, pool, …).
+- **`postgres-overview.json`** — Grafana.com **9628** (PostgreSQL / `postgres_exporter`), normalized for datasource uid `prometheus`.
+- **`rabbitmq-overview.json`** — Grafana.com **10991** (RabbitMQ / `rabbitmq_prometheus`).
+- **`minio-overview.json`** — Grafana.com **13502** (MinIO Prometheus metrics).
+
+Re-download and normalize the three community exports: **`python3 observability/scripts/normalize_grafana_dashboards.py`**. Overview: **`observability/README.md`**.
+
+From the repo root:
+
+```bash
+docker compose --profile observability up -d
+```
+
+- Prometheus: **http://localhost:9090**  
+- Grafana: **http://localhost:3000** (default login **admin** / **admin**; change in production)
+
+The default **`docker compose up`** stack is unchanged; add **`--profile observability`** when you want Prometheus and Grafana. **RabbitMQ** is now a small custom build (adds the Prometheus plugin and exposes **15692**); other services are unchanged aside from MinIO’s metrics env.
+
 ## Optimizations
 
 This section records how the backend handles I/O and scaling-related concerns today.
@@ -48,7 +103,9 @@ All bot-facing routers (`registration`, `profile`, `preferences`, `discovery`) d
 | **Discovery (mocked HTTP)** | Distance math, discovery response schemas, and discovery routes with the discovery service layer mocked (next/like/skip/incoming-likes plus auth). |
 | **Discovery (`integration_db`)** | `rank_candidate_ids` (gender filter, prior interaction exclusion, max-distance filtering with real coordinates), Redis `pop_next_target_id` refill, `record_like` / duplicate `409`, reciprocal match persistence, `record_skip`. **ASGI HTTP**: `POST /discovery/like` and `POST /discovery/skip` with real DB + Redis and a no-op event publisher override. |
 | **Profile & preferences (mocked HTTP)** | Profile “me” and several mutation routes with edit services mocked; preferences age/gender/distance routes similarly. |
-| **Profile & preferences (`integration_db`)** | `build_profile_card` with `StubPhotoPresigner`, `get_profile_me`, `edit_age_range`, `edit_display_name`, `count_profile_photos`. |
+| **Profile & preferences (`integration_db`)** | `build_profile_card` with `StubPhotoPresigner`, `get_profile_me`, `edit_age_range`, `edit_display_name`, `count_profile_photos`. **`test_profile_preferences_edit_db.py`**: post-registration profile edits (bio/location/interests limits, photo delete/reorder, preferences 403/404/validation). |
+| **Registration (`integration_db`)** | **`test_registration_wizard_db.py`**: full wizard through `complete_registration` on real Postgres with geocoder and Telegram upload mocked. |
+| **Registration routes (integration)** | **`test_registration_routes_smoke.py`**: every `POST /registration/*` handler hit with stub session + patched `registration_service` (router line coverage). |
 | **Bot auth (integration)** | Parametrized `POST` routes return **401** when `X-Bot-Secret` is missing, using `create_app(use_lifespan=False)` (no DB connection required). |
 | **Photo presign (unit)** | `StubPhotoPresigner` URL shape; `age_on_date` edge cases. |
 | **Geocoding** | Cascade provider behavior with `pytest-httpx` (Nominatim/Google paths, errors). |
@@ -56,6 +113,10 @@ All bot-facing routers (`registration`, `profile`, `preferences`, `discovery`) d
 | **Workers** | Telegram notify helper; behavior consumer (histogram merge, event application, dedup + Celery enqueue) with Redis/session mocked. |
 | **Bot** | Transport factory (polling vs webhook), API error formatting for the user, menu preference text, `httpx`-mocked bot→API client calls, and circuit breaker / retry helpers. |
 | **API infra** | `EventPublisher` guard when not connected; `/health` in integration smoke. |
+
+### Coverage (dev gate)
+
+`backend/pyproject.toml` configures **Coverage.py** for the combined tree **`api/` + `shared/` + `workers/`** (the bot package is measured separately if you add `--cov=bot`). `fail_under = 85` applies when you run pytest with `--cov=api --cov=shared --cov=workers`. CI runs that command so merges stay above the threshold. Telegram handlers (`bot/handlers/*`) remain mostly out of this percentage by design; critical persistence and workers are in scope.
 
 ### Selecting tests
 

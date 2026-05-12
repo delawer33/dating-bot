@@ -1,0 +1,9 @@
+[tool.coverage.run]
+source = ["api", "shared", "workers"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+precision = 0
+skip_covered = true
+show_missing = true
+fail_under = 85

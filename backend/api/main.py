@@ -6,15 +6,28 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from api.config import settings
 from api.dependencies import close_redis, init_redis
 from api.messaging.events import EventPublisher
+from api.metrics import (
+    PrometheusMetricsMiddleware,
+    metrics_response,
+    observe_geocode_attempt,
+)
+from api.middleware.request_context import RequestContextMiddleware
 from api.routers import discovery, preferences, profile, registration
 from shared.db.session import close_db, init_db
+from shared.geo import cascade as geo_cascade
+from shared.logging_setup import configure_logging
 from shared.storage.s3 import build_s3_client, ensure_bucket
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+configure_logging(
+    service="api",
+    log_level=settings.log_level,
+    json_logs=settings.effective_log_json,
+)
 logger = logging.getLogger(__name__)
 
 # `docker compose restart` does not wait on depends_on / health again; RabbitMQ can need
@@ -32,6 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_overflow=settings.database_max_overflow,
         pool_recycle=settings.database_pool_recycle,
     )
+    geo_cascade.set_geocode_metrics_hook(observe_geocode_attempt)
     s3_client = build_s3_client(
         endpoint_url=settings.s3_endpoint_url,
         access_key=settings.s3_access_key,
@@ -74,6 +88,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Event publisher connected to RabbitMQ")
     app.state.event_publisher = event_publisher
     yield
+    geo_cascade.set_geocode_metrics_hook(None)
     await close_db()
     await close_redis()
     pub = getattr(app.state, "event_publisher", None)
@@ -82,7 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("API shutdown complete")
 
 
-def _mount_routes(application: FastAPI) -> None:
+def _mount_routes(application: FastAPI, *, metrics_enabled: bool) -> None:
     application.include_router(registration.router)
     application.include_router(profile.router)
     application.include_router(preferences.router)
@@ -92,9 +107,23 @@ def _mount_routes(application: FastAPI) -> None:
     async def health() -> dict:
         return {"status": "ok", "env": settings.app_env}
 
+    if metrics_enabled:
 
-def create_app(*, use_lifespan: bool = True) -> FastAPI:
-    """Build the FastAPI app. Tests set ``use_lifespan=False`` to skip broker/DB/S3 startup."""
+        @application.get("/metrics")
+        async def metrics() -> Response:
+            return metrics_response()
+
+
+def create_app(
+    *,
+    use_lifespan: bool = True,
+    enable_metrics: bool | None = None,
+) -> FastAPI:
+    """Build the FastAPI app.
+
+    Tests set ``use_lifespan=False`` to skip broker/DB/S3 startup.
+    ``enable_metrics=False`` omits ``/metrics`` and HTTP metrics middleware (optional).
+    """
     kwargs: dict = {
         "title": "Dating Bot Profile API",
         "version": "0.1.0",
@@ -103,6 +132,7 @@ def create_app(*, use_lifespan: bool = True) -> FastAPI:
     }
     if use_lifespan:
         kwargs["lifespan"] = lifespan
+    metrics_on = settings.metrics_enabled if enable_metrics is None else enable_metrics
     application = FastAPI(**kwargs)
     application.add_middleware(
         CORSMiddleware,
@@ -110,7 +140,10 @@ def create_app(*, use_lifespan: bool = True) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    _mount_routes(application)
+    application.add_middleware(RequestContextMiddleware)
+    if metrics_on:
+        application.add_middleware(PrometheusMetricsMiddleware)
+    _mount_routes(application, metrics_enabled=metrics_on)
     return application
 
 

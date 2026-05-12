@@ -10,6 +10,7 @@ from api.messaging.events import EventPublisher
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import settings
+from api.metrics import record_bot_auth_failure
 from api.services.photo_presign import BotoPhotoPresigner
 from shared.db.session import get_session
 from shared.geo.cascade import CascadeGeocodingProvider
@@ -54,6 +55,8 @@ def get_redis() -> aioredis.Redis:
 
 async def require_bot_auth(x_bot_secret: Annotated[str | None, Header()] = None) -> None:
     if not x_bot_secret or not hmac.compare_digest(x_bot_secret, settings.bot_secret):
+        logger.warning("bot_auth_failed missing_or_invalid_secret")
+        record_bot_auth_failure()
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
