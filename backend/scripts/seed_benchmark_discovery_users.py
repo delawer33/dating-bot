@@ -59,11 +59,17 @@ async def _run(start: int, count: int) -> tuple[int, int]:
                     skipped += 1
                     continue
                 gender = "male" if i % 2 == 0 else "female"
+                # Tight cluster around Berlin so discovery distance filters return peers.
+                lat = 52.52 + (i % 40) * 0.0015
+                lon = 13.405 + (i // 40) * 0.0015
                 await insert_user_with_profile(
                     session,
                     telegram_id=tid,
                     display_name=f"Bench {tid}",
                     gender=gender,
+                    city="Berlin",
+                    latitude=lat,
+                    longitude=lon,
                     gender_preferences=["male", "female"],
                     max_distance_km=None,
                     combined_rating=float(i % 20),

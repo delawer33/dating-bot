@@ -105,6 +105,10 @@ idempotent `referral_events` row for `referee_id`; Celery recompute for referee 
 Curated ids in `shared/interests_taxonomy.py` (`VALID_INTEREST_IDS`). Russian labels for the bot
 live in `INTEREST_LABELS_RU`.
 
+## Load testing (JMeter)
+
+Synthetic registered users for discovery: `python scripts/seed_benchmark_discovery_users.py` (writes optional CSV). JMeter plans and `run-benchmark.sh` live in **`benchmarks/jmeter/`** at repo root; see **`benchmarks/jmeter/README.md`**.
+
 ## Migrate Docker image
 
 Slim `backend/migrate/Dockerfile` + `requirements-migrate.txt`; copies **`alembic/`**, **`alembic.ini`**, and **`shared/`**; default **`CMD`** is **`alembic upgrade head`**. Compose passes **`DATABASE_URL`**
